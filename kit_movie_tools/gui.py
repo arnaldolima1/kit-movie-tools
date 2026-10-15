@@ -300,7 +300,7 @@ class App:
                 with dpg.child_window(width=250, tag='sidebar', border=False, no_scrollbar=True,
                                       always_use_window_padding=True):
                     with dpg.group(horizontal=True):
-                        self.font(dpg.add_text('PSP', color=ACCENT_BRIGHT), 'logo')
+                        self.font(dpg.add_text('Kit', color=ACCENT_BRIGHT), 'logo')
                         self.font(dpg.add_text('Movie Tools', color=TEXT), 'logo')
                     self.font(dpg.add_text(f'v{__version__}', color=TEXT_DIM), 'small')
                     dpg.add_spacer(height=22)
@@ -974,26 +974,26 @@ class App:
         dpg.setup_dearpygui()
         dpg.show_viewport()
         dpg.set_primary_window('main', True)
-        # PSPMT_SCREENSHOT=file.png [PSPMT_PAGE=disc] [PSPMT_PREVIEW=MOVIE]:
+        # KMT_SCREENSHOT=file.png [KMT_PAGE=disc] [KMT_PREVIEW=MOVIE]:
         # save the window once idle and close, to check the look without
         # anyone at the screen.
-        screenshot = os.environ.get('PSPMT_SCREENSHOT')
-        if os.environ.get('PSPMT_PAGE') in PAGES:
-            self.show_page(os.environ['PSPMT_PAGE'])
-        if os.environ.get('PSPMT_VIEW'):
-            where, name = os.environ['PSPMT_VIEW'].split(':')
+        screenshot = os.environ.get('KMT_SCREENSHOT')
+        if os.environ.get('KMT_PAGE') in PAGES:
+            self.show_page(os.environ['KMT_PAGE'])
+        if os.environ.get('KMT_VIEW'):
+            where, name = os.environ['KMT_VIEW'].split(':')
             self.show_page('disc' if where == 'disc' else 'upscale')
             self.open_viewer(where, name)
-        if os.environ.get('PSPMT_PREVIEW'):
+        if os.environ.get('KMT_PREVIEW'):
             self.show_page('upscale')
-            dpg.set_value(self.upscale_checks[os.environ['PSPMT_PREVIEW']], True)
+            dpg.set_value(self.upscale_checks[os.environ['KMT_PREVIEW']], True)
             self.open_preview()
         frames = 0
         shot_at = None
         while dpg.is_dearpygui_running():
             frames += 1
             if (screenshot and shot_at is None and frames >= 90 and self.busy is None
-                    and not dpg.get_value('thumb_status') and frames >= int(os.environ.get('PSPMT_WAIT', '90'))):
+                    and not dpg.get_value('thumb_status') and frames >= int(os.environ.get('KMT_WAIT', '90'))):
                 shot_at = frames + 20
             if screenshot and frames == shot_at:
                 dpg.output_frame_buffer(file=screenshot)

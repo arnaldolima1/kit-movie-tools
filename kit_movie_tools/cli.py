@@ -22,7 +22,7 @@ def command_extract(args):
     settings = tools.load_settings()
     ffmpeg = None if args.no_mp4 else tools.find_ffmpeg(settings)[0]
     if not args.no_mp4 and ffmpeg is None:
-        print('note: no ffmpeg found; writing .264 files only (python psp_movies.py download ffmpeg)')
+        print('note: no ffmpeg found; writing .264 files only (python kit_movies.py download ffmpeg)')
     wanted = {n.upper().removesuffix('.PMF') for n in args.only} if args.only else None
     done = 0
     with Iso(args.iso) as iso:
@@ -45,9 +45,9 @@ def command_upscale(args):
     ffmpeg, ffprobe = tools.find_ffmpeg(settings)
     realesrgan = tools.find_realesrgan(settings)
     if ffmpeg is None:
-        raise SystemExit('no ffmpeg found: python psp_movies.py download ffmpeg (or install it)')
+        raise SystemExit('no ffmpeg found: python kit_movies.py download ffmpeg (or install it)')
     if realesrgan is None:
-        raise SystemExit('no realesrgan-ncnn-vulkan found: python psp_movies.py download realesrgan, or --tool')
+        raise SystemExit('no realesrgan-ncnn-vulkan found: python kit_movies.py download realesrgan, or --tool')
 
     def show(p):
         print(f'\r  {p.frames_done}/{p.frames} frames, {p.fps:.2f} frames/s, '
@@ -99,7 +99,7 @@ def main(argv=None):
     p.add_argument('what', choices=('ffmpeg', 'realesrgan'))
     p.set_defaults(run=command_download)
     p = commands.add_parser('gui', help='open the window')
-    p.set_defaults(run=lambda _: __import__('psp_movie_tools.gui', fromlist=['main']).main())
+    p.set_defaults(run=lambda _: __import__('kit_movie_tools.gui', fromlist=['main']).main())
     args = parser.parse_args(argv)
     try:
         args.run(args)

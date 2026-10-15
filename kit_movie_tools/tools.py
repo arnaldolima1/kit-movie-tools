@@ -12,7 +12,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-APP_NAME = 'psp-movie-tools'
+APP_NAME = 'kit-movie-tools'
 
 
 def no_window():
@@ -36,7 +36,7 @@ def data_dir():
 
 DEFAULTS = {
     'iso': '',
-    'output': str(Path.home() / 'PSP Movies'),
+    'output': str(Path.home() / 'Kit Movies'),
     'tools': '',            # '' = data_dir() / 'tools'
     'ffmpeg': '',           # '' = found automatically
     'realesrgan': '',       # '' = found automatically

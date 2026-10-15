@@ -3,7 +3,7 @@ import locale
 import os
 
 TEXTS = {
-    'app': ('PSP Movie Tools', 'PSP Movie Tools'),
+    'app': ('Kit Movie Tools', 'Kit Movie Tools'),
     'nav_tools': ('Tools', 'Ferramentas'),
     'nav_disc': ('Disc', 'Disco'),
     'nav_upscale': ('Upscale', 'Remasterizar'),

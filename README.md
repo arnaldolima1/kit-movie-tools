@@ -1,8 +1,8 @@
-# psp-movie-tools
+# kit-movie-tools
 
 **English** · [Português (Brasil)](README.pt-BR.md)
 
-Lists and extracts the cutscene movies of a PSP game from **your own** disc image, so you can watch them, or upscale them and put them back in a port that supports replacement movies. It works with any game that keeps its movies as PSMF files (`.pmf`), which is most of them.
+Lists, extracts and upscales the cutscene movies of console games from **your own** disc images, so you can watch them, or put sharper ones back in a port that supports replacement movies. Today it reads PSP games: any game that keeps its movies as PSMF files (`.pmf`), which is most of them. Other consoles' formats can join later.
 
 > [!IMPORTANT]
 > This repository contains no game data. The tool only reads a disc image you provide and writes the movies to a folder you choose. Keep what you extract to yourself.
@@ -11,7 +11,7 @@ Lists and extracts the cutscene movies of a PSP game from **your own** disc imag
 
 ```bash
 pip install -r requirements.txt     # Dear PyGui, once
-python psp_movies.py gui            # or double-click "PSP Movie Tools.pyw" on Windows
+python kit_movies.py gui            # or double-click "Kit Movie Tools.pyw" on Windows
 ```
 
 1. **Tools**: download ffmpeg and Real-ESRGAN with a click (pinned releases, checked against their SHA-256, unpacked into the app's tools folder and set up). Already installed ones are found.
@@ -25,9 +25,9 @@ English and Brazilian Portuguese. Settings are kept per user.
 Python 3.9 or newer, nothing else. [ffmpeg](https://ffmpeg.org/) on the PATH is optional: with it, every movie is also written as an `.mp4` (the same video, not re-encoded), which is what most video and AI upscaling tools open.
 
 ```bash
-python psp_movies.py list    "My Game.iso"
-python psp_movies.py extract "My Game.iso" movies/                    # every movie
-python psp_movies.py extract "My Game.iso" movies/ --only R6_INTRO    # just one
+python kit_movies.py list    "My Game.iso"
+python kit_movies.py extract "My Game.iso" movies/                    # every movie
+python kit_movies.py extract "My Game.iso" movies/ --only R6_INTRO    # just one
 ```
 
 For each movie, `extract` writes:
@@ -42,10 +42,10 @@ Audio (ATRAC3plus, often one track per language) stays on the disc: a replacemen
 
 ## Upscaling a movie
 
-`upscale` does it with [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN)'s `realesrgan-ncnn-vulkan` (`python psp_movies.py download realesrgan`, or the Tools page; it runs on any GPU with Vulkan, AMD included) and ffmpeg:
+`upscale` does it with [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN)'s `realesrgan-ncnn-vulkan` (`python kit_movies.py download realesrgan`, or the Tools page; it runs on any GPU with Vulkan, AMD included) and ffmpeg:
 
 ```bash
-python psp_movies.py upscale movies/R6_INTRO.mp4 upscaled/R6_INTRO.mp4 
+python kit_movies.py upscale movies/R6_INTRO.mp4 upscaled/R6_INTRO.mp4 
 ```
 
 It keeps the frame rate and the frame count, writes 1920x1088 by default (`--height`), and works in blocks of 300 frames, so the disk holds one block of images at a time; run it again after a stop and it goes on from the last finished block. Models: `realesrgan-x4plus` (the default, best for rendered video; about 1 frame a second on a Radeon RX 7600) or `realesr-animevideov3` (about 10 times faster, smoother and less detailed).
