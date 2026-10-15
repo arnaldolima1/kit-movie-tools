@@ -208,6 +208,16 @@ def download(kind, settings, progress=None, cancel=None):
     return target
 
 
+def open_file(path):
+    """Opens a file in the program the system has for it (a video player)."""
+    if os.name == 'nt':
+        os.startfile(str(path))  # noqa: S606 - the user's own file
+    elif sys.platform == 'darwin':
+        subprocess.run(['open', str(path)])
+    else:
+        subprocess.run(['xdg-open', str(path)])
+
+
 def open_folder(path):
     path = Path(path)
     path.mkdir(parents=True, exist_ok=True)

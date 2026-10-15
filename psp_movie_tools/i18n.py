@@ -124,6 +124,14 @@ TEXTS = {
                    'remasterizar só para você.\n\n'
                    'A remasterização usa o Real-ESRGAN (BSD-3-Clause), pelo realesrgan-ncnn-vulkan, e o ffmpeg. A '
                    'janela usa o Dear PyGui (MIT).'),
+    'view_info': ('{} · {} frames · {} audio tracks', '{} · {} quadros · {} faixas de áudio'),
+    'open_player': ('Open in your player', 'Abrir no player'),
+    'open_remaster_player': ('Open the upscaled one', 'Abrir o remasterizado'),
+    'extract_to_watch': ('Extract it to watch it in a player.', 'Extraia o vídeo para assistir num player.'),
+    'loading_frames': ('Loading frames…', 'Carregando quadros…'),
+    'thumbs_progress': ('Making previews: {} of {}', 'Gerando miniaturas: {} de {}'),
+    'click_to_view': ('Click a picture to see more of that movie.',
+                      'Clique numa miniatura para ver mais daquele vídeo.'),
     'busy': ('Something is already running.', 'Já tem algo em andamento.'),
     'error': ('Error: {}', 'Erro: {}'),
 }

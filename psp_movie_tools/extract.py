@@ -49,12 +49,9 @@ def list_movies(iso):
     return found
 
 
-def extract_movie(iso, movie, out_dir, ffmpeg=None):
-    """Writes NAME.264, NAME.json and (with ffmpeg) NAME.mp4 into `out_dir`.
-    Returns the metadata written to NAME.json; raises RuntimeError if the
-    movie holds no video or ffmpeg fails."""
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+def video_bytes(iso, movie):
+    """A movie's H.264 stream (Annex B) as it is on the disc, and the PTS of
+    its PES packets. Raises RuntimeError if it has no video."""
     info = movie.info
     data = iso.read(movie.lba * SECTOR + info['stream_offset'],
                     min(info['stream_size'], movie.size - info['stream_offset']))
@@ -66,6 +63,17 @@ def extract_movie(iso, movie, out_dir, ffmpeg=None):
     stream = b''.join(chunks)
     if not stream:
         raise RuntimeError(f'{movie.path}: no video stream found')
+    return stream, pts_values
+
+
+def extract_movie(iso, movie, out_dir, ffmpeg=None):
+    """Writes NAME.264, NAME.json and (with ffmpeg) NAME.mp4 into `out_dir`.
+    Returns the metadata written to NAME.json; raises RuntimeError if the
+    movie holds no video or ffmpeg fails."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    info = movie.info
+    stream, pts_values = video_bytes(iso, movie)
     frames = psmf.picture_count(stream)
     rate = psmf.frame_rate(info, pts_values, frames)
     name = movie.name

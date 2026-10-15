@@ -15,7 +15,9 @@ from . import __version__, tools
 from .extract import extract_movie, list_movies
 from .i18n import LANGUAGES, Texts
 from .iso import Iso
+from .extract import video_bytes
 from .preview import preview
+from .thumbs import THUMB_SIZE, as_floats, cached, frame_rgba
 from .upscale import upscale_movie
 
 # A deep blue palette.
@@ -38,6 +40,9 @@ PAGES = ('tools', 'disc', 'upscale', 'about')
 MODELS = ('realesrgan-x4plus', 'realesr-animevideov3-x4', 'realesrgan-x4plus-anime')
 HEIGHTS = (1088, 1632, 2176)
 PREVIEW_SIZE = (540, 306)
+VIEW_SIZE = (360, 204)               # a frame in the movie viewer
+VIEW_AT = (0.10, 0.35, 0.60, 0.85)   # where in the movie its four frames are
+FPS = 30000 / 1001
 
 
 def font_file(bold=False):
@@ -57,6 +62,12 @@ def shorten(text, size):
 def duration_text(t, seconds):
     minutes = int(seconds // 60 + 0.5)
     return t('hours', minutes // 60, minutes % 60) if minutes >= 60 else t('minutes', max(minutes, 1))
+
+
+def centred(width, height):
+    """Where a window of this size sits in the middle of the app's window."""
+    return [max(0, (dpg.get_viewport_client_width() - width) // 2),
+            max(0, (dpg.get_viewport_client_height() - height) // 2)]
 
 
 def clock(seconds):
@@ -81,6 +92,11 @@ class App:
         self.ready = False
         self.fonts = {}
         self.themes = {}
+        self.blank_thumb = None
+        self.thumb_textures = {}   # (where, name) -> texture
+        self.thumb_buttons = {}    # (where, name) -> image button
+        self.thumb_generation = 0
+        self.view_textures = None
 
     # -- threads -------------------------------------------------------------
 
@@ -202,6 +218,10 @@ class App:
             make(name, [(dpg.mvThemeCol_Button, (*color, 38)), (dpg.mvThemeCol_ButtonHovered, (*color, 38)),
                         (dpg.mvThemeCol_ButtonActive, (*color, 38)), (dpg.mvThemeCol_Text, color)],
                  [(dpg.mvStyleVar_FrameRounding, 20), (dpg.mvStyleVar_FramePadding, 12, 4)], dpg.mvButton)
+        make('tight', styles=[(dpg.mvStyleVar_ItemSpacing, 8, 3), (dpg.mvStyleVar_CellPadding, 0, 3)])
+        make('thumb', [(dpg.mvThemeCol_Button, (0, 0, 0, 0)), (dpg.mvThemeCol_ButtonHovered, (*ACCENT, 120)),
+                       (dpg.mvThemeCol_ButtonActive, ACCENT)],
+             [(dpg.mvStyleVar_FramePadding, 2, 2), (dpg.mvStyleVar_FrameRounding, 6)], dpg.mvImageButton)
         make('bar', [(dpg.mvThemeCol_FrameBg, FIELD), (dpg.mvThemeCol_PlotHistogram, ACCENT)],
              [(dpg.mvStyleVar_FrameRounding, 20)], dpg.mvProgressBar)
         make('preview', [(dpg.mvThemeCol_WindowBg, CARD)], [(dpg.mvStyleVar_WindowPadding, 22, 18)])
@@ -302,7 +322,9 @@ class App:
                         self.build_disc_page()
                         self.build_upscale_page()
                         self.build_about_page()
-                    dpg.add_text('', tag='status', color=TEXT_DIM)
+                    with dpg.group(horizontal=True):
+                        self.font(dpg.add_text('', tag='status', color=TEXT_DIM), 'small')
+                        self.font(dpg.add_text('', tag='thumb_status', color=ACCENT_BRIGHT), 'small')
         self.theme('main', 'flush')
         self.theme('content_area', 'content')
         self.build_dialogs()
@@ -418,32 +440,42 @@ class App:
         with dpg.group(tag='page_disc', show=False):
             self.heading('disc_title', 'disc_intro')
             with self.card():
-                self.label(t('iso'))
-                with dpg.group(horizontal=True):
-                    dpg.add_input_text(tag='iso_path', default_value=self.settings.get('iso', ''), readonly=True,
-                                       width=-150)
-                    dpg.add_button(label=t('choose_iso'), tag='choose_iso', width=140,
-                                   callback=lambda: dpg.show_item('iso_dialog'))
-                self.label(t('output'))
-                with dpg.group(horizontal=True):
-                    dpg.add_input_text(tag='output_path', default_value=self.settings['output'], readonly=True,
-                                       width=-260)
-                    self.quiet(t('choose_folder'), lambda: dpg.show_item('output_dialog'), width=140)
-                    self.quiet(t('open'), lambda: tools.open_folder(self.settings['output']), width=100)
+                with dpg.table(header_row=False, policy=dpg.mvTable_SizingStretchProp) as paths:
+                    dpg.add_table_column(init_width_or_weight=1.0)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=260)
+                    with dpg.table_row():
+                        with dpg.group():
+                            self.label(t('iso'))
+                            with dpg.group(horizontal=True, horizontal_spacing=12):
+                                self.font(dpg.add_text('', tag='iso_name', color=TEXT), 'section')
+                                self.font(dpg.add_text('', tag='iso_path', color=TEXT_DIM), 'small')
+                        dpg.add_button(label=t('choose_iso'), tag='choose_iso', width=-1, height=40,
+                                       callback=lambda: dpg.show_item('iso_dialog'))
+                    with dpg.table_row():
+                        with dpg.group():
+                            self.label(t('output'))
+                            self.font(dpg.add_text('', tag='output_path', color=TEXT), 'small')
+                        with dpg.group(horizontal=True):
+                            self.quiet(t('choose_folder'), lambda: dpg.show_item('output_dialog'), width=140)
+                            self.quiet(t('open'), lambda: tools.open_folder(self.settings['output']), width=110)
+                self.theme(paths, 'tight')
+                dpg.add_spacer(height=4)
                 with dpg.group(horizontal=True, tag='disc_chips'):
                     self.chip('', tag='chip_game')
                     self.chip('', tag='chip_count')
                     self.chip('', tag='chip_length')
                     self.chip('', tag='chip_done', kind='chip_good')
-            with self.card(height=-64):
+            with self.card(height=-96):
                 with dpg.table(tag='disc_table', header_row=True, row_background=True, borders_innerH=True,
                                scrollY=True, height=-1, policy=dpg.mvTable_SizingStretchProp):
                     dpg.add_table_column(label='', width_fixed=True, init_width_or_weight=34)
+                    dpg.add_table_column(label='', width_fixed=True, init_width_or_weight=THUMB_SIZE[0] + 8)
                     dpg.add_table_column(label=t('col_movie'), init_width_or_weight=3.0)
                     dpg.add_table_column(label=t('col_length'), init_width_or_weight=1.0)
                     dpg.add_table_column(label=t('col_size'), init_width_or_weight=1.0)
                     dpg.add_table_column(label=t('col_audio'), init_width_or_weight=0.8)
                     dpg.add_table_column(label=t('col_status'), init_width_or_weight=1.2)
+            self.font(dpg.add_text(t('click_to_view'), color=TEXT_DIM), 'small')
             with dpg.group(horizontal=True):
                 self.quiet(t('select_all'), lambda: self.check_all(self.disc_checks, True))
                 self.quiet(t('select_none'), lambda: self.check_all(self.disc_checks, False))
@@ -453,8 +485,15 @@ class App:
                 self.bar('disc_bar')
         self.update_disc_chips()
 
+    def show_paths(self):
+        iso = self.settings.get('iso', '')
+        dpg.set_value('iso_name', Path(iso).stem if iso else '-')
+        dpg.set_value('iso_path', shorten(str(Path(iso).parent), 60) if iso else '')
+        dpg.set_value('output_path', shorten(self.settings['output'], 90))
+
     def update_disc_chips(self):
         t = self.t
+        self.show_paths()
         show = bool(self.movies)
         for tag in ('chip_game', 'chip_count', 'chip_length', 'chip_done'):
             dpg.configure_item(tag, show=show)
@@ -477,7 +516,7 @@ class App:
         path = data.get('file_path_name') or ''
         if path:
             self.settings['output'] = path
-            dpg.set_value('output_path', path)
+            self.show_paths()
             self.save()
             self.fill_disc_table()
             self.refresh_extracted()
@@ -492,7 +531,7 @@ class App:
             return
         self.settings['iso'] = path
         self.save()
-        dpg.set_value('iso_path', path)
+        self.show_paths()
         self.fill_disc_table()
         self.message('')
 
@@ -509,6 +548,7 @@ class App:
             with dpg.table_row(parent='disc_table'):
                 self.disc_checks[movie.name] = dpg.add_checkbox(
                     default_value=previous.get(movie.name, movie.name not in done and 'ICON' not in movie.name))
+                self.thumb_button('disc', movie.name)
                 dpg.add_text(movie.name)
                 dpg.add_text(clock(movie.seconds), color=TEXT_DIM)
                 dpg.add_text(f'{movie.size / 1048576:.1f} MiB', color=TEXT_DIM)
@@ -518,6 +558,7 @@ class App:
                 else:
                     dpg.add_text('')
         self.update_disc_chips()
+        self.make_thumbs()
 
     @staticmethod
     def check_all(checks, value):
@@ -585,6 +626,7 @@ class App:
                 with dpg.table(tag='up_table', header_row=True, row_background=True, borders_innerH=True,
                                scrollY=True, height=-1, policy=dpg.mvTable_SizingStretchProp):
                     dpg.add_table_column(label='', width_fixed=True, init_width_or_weight=34)
+                    dpg.add_table_column(label='', width_fixed=True, init_width_or_weight=THUMB_SIZE[0] + 8)
                     dpg.add_table_column(label=t('col_movie'), init_width_or_weight=3.0)
                     dpg.add_table_column(label=t('col_length'), init_width_or_weight=1.0)
                     dpg.add_table_column(label=t('col_frames'), init_width_or_weight=1.0)
@@ -637,6 +679,7 @@ class App:
             status, kind = self.upscale_status(name, meta)
             with dpg.table_row(parent='up_table'):
                 self.upscale_checks[name] = dpg.add_checkbox(default_value=previous.get(name, False))
+                self.thumb_button('upscale', name)
                 dpg.add_text(name)
                 dpg.add_text(clock(meta.get('duration_seconds', 0)), color=TEXT_DIM)
                 dpg.add_text(str(meta.get('frames', '?')), color=TEXT_DIM)
@@ -646,6 +689,7 @@ class App:
                     dpg.add_text(status, color=TEXT_DIM)
         if not self.extracted and self.page == 'upscale':
             self.message(self.t('no_extracted'), 'warn')
+        self.make_thumbs()
 
     def upscale_status(self, name, meta):
         t = self.t
@@ -707,6 +751,145 @@ class App:
 
         self.start('upscale', work)
 
+    # Thumbnails and the movie viewer
+
+    def thumb_button(self, where, name):
+        if self.blank_thumb is None:
+            width, height = THUMB_SIZE
+            with dpg.texture_registry():
+                self.blank_thumb = dpg.add_static_texture(width, height, [FIELD[0] / 255, FIELD[1] / 255,
+                                                                          FIELD[2] / 255, 1.0] * (width * height))
+        texture = self.thumb_textures.get((where, name), self.blank_thumb)
+        button = dpg.add_image_button(texture, width=THUMB_SIZE[0], height=THUMB_SIZE[1],
+                                      callback=lambda s, a, u: self.open_viewer(*u), user_data=(where, name))
+        self.theme(button, 'thumb')
+        self.thumb_buttons[(where, name)] = button
+        return button
+
+    def make_thumbs(self):
+        """Fills the thumbnails both lists still lack, on a thread of their own:
+        from the cache at once, else one by one with ffmpeg."""
+        ffmpeg = tools.find_ffmpeg(self.settings)[0]
+        if ffmpeg is None:
+            return
+        self.thumb_generation += 1
+        generation = self.thumb_generation
+        iso_path = self.settings.get('iso', '')
+        jobs = []
+        for movie in self.movies:
+            if ('disc', movie.name) not in self.thumb_textures:
+                frame = int(movie.seconds * FPS * 0.25)
+                jobs.append(('disc', movie.name, frame, None, movie, f'{iso_path}|{movie.path}'))
+        for name, mp4, meta in self.extracted:
+            if ('upscale', name) not in self.thumb_textures:
+                jobs.append(('upscale', name, int(meta.get('frames', 4) * 0.25), mp4, None, None))
+        if not jobs:
+            return
+        t = self.t
+
+        def work():
+            iso = None
+            try:
+                for index, (where, name, frame, path, movie, key) in enumerate(jobs):
+                    if generation != self.thumb_generation:
+                        return
+                    pixels = cached(key, frame, THUMB_SIZE) if key else None
+                    try:
+                        if pixels is None and movie is not None:
+                            if iso is None:
+                                iso = Iso(iso_path)
+                            data, _ = video_bytes(iso, movie)
+                            pixels = frame_rgba(ffmpeg, frame, THUMB_SIZE, data=data, key=key)
+                        elif pixels is None:
+                            pixels = frame_rgba(ffmpeg, frame, THUMB_SIZE, path=path)
+                    except (OSError, RuntimeError):
+                        continue
+                    values = as_floats(pixels)
+                    self.post(lambda w=where, n=name, v=values, i=index: self.set_thumb(w, n, v, i, len(jobs)))
+            finally:
+                if iso is not None:
+                    iso.close()
+                self.post(lambda: dpg.set_value('thumb_status', '') if dpg.does_item_exist('thumb_status') else None)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def set_thumb(self, where, name, values, index, count):
+        width, height = THUMB_SIZE
+        if (where, name) not in self.thumb_textures:
+            with dpg.texture_registry():
+                self.thumb_textures[(where, name)] = dpg.add_static_texture(width, height, values)
+        button = self.thumb_buttons.get((where, name))
+        if button is not None and dpg.does_item_exist(button):
+            dpg.configure_item(button, texture_tag=self.thumb_textures[(where, name)])
+        if dpg.does_item_exist('thumb_status'):
+            dpg.set_value('thumb_status', self.t('thumbs_progress', index + 1, count) if index + 1 < count else '')
+
+    def open_viewer(self, where, name):
+        """Four frames of a movie, larger, and buttons to watch it."""
+        t = self.t
+        ffmpeg = tools.find_ffmpeg(self.settings)[0]
+        if ffmpeg is None:
+            self.message(t('need_tools'), 'bad')
+            return
+        out = Path(self.settings['output'])
+        mp4 = out / f'{name}.mp4'
+        remaster = self.remaster_dir() / f'{name}.mp4'
+        movie = next((m for m in self.movies if m.name == name), None)
+        meta = next((m for n, _, m in self.extracted if n == name), {})
+        seconds = movie.seconds if movie else meta.get('duration_seconds', 0)
+        frames = int(meta.get('frames') or seconds * FPS)
+        tracks = movie.audio_tracks if movie else meta.get('audio_streams', 0)
+        width, height = VIEW_SIZE
+        if self.view_textures is None:
+            blank = [CARD[0] / 255, CARD[1] / 255, CARD[2] / 255, 1.0] * (width * height)
+            with dpg.texture_registry():
+                self.view_textures = [dpg.add_dynamic_texture(width, height, blank) for _ in VIEW_AT]
+        blank = [CARD[0] / 255, CARD[1] / 255, CARD[2] / 255, 1.0] * (width * height)
+        for texture in self.view_textures:
+            dpg.set_value(texture, blank)
+        if dpg.does_item_exist('viewer'):
+            dpg.delete_item('viewer')
+        with dpg.window(label=name, tag='viewer', modal=True, no_resize=True, no_scrollbar=True,
+                        width=width * 2 + 66, height=height * 2 + 230,
+                        pos=centred(width * 2 + 66, height * 2 + 230)):
+            self.font(dpg.add_text(t('view_info', clock(seconds), frames, tracks), color=TEXT_DIM), 'small')
+            for row in range(2):
+                with dpg.group(horizontal=True, horizontal_spacing=10):
+                    for column in range(2):
+                        index = row * 2 + column
+                        with dpg.group():
+                            dpg.add_image(self.view_textures[index])
+                            self.font(dpg.add_text(clock(seconds * VIEW_AT[index]), color=TEXT_DIM), 'small')
+            with dpg.group(horizontal=True):
+                if mp4.is_file():
+                    dpg.add_button(label=t('open_player'), width=230, callback=lambda: tools.open_file(mp4))
+                else:
+                    self.font(dpg.add_text(t('extract_to_watch'), color=TEXT_DIM), 'small')
+                if remaster.is_file():
+                    self.theme(dpg.add_button(label=t('open_remaster_player'), width=260,
+                                              callback=lambda: tools.open_file(remaster)), 'quiet')
+            self.font(dpg.add_text(t('loading_frames'), tag='viewer_status', color=TEXT_DIM), 'small')
+        self.theme('viewer', 'preview')
+        iso_path = self.settings.get('iso', '')
+
+        def work():
+            data = None
+            if not mp4.is_file() and movie is not None:
+                with Iso(iso_path) as iso:
+                    data, _ = video_bytes(iso, movie)
+            for index, at in enumerate(VIEW_AT):
+                frame = int(frames * at)
+                try:
+                    pixels = frame_rgba(ffmpeg, frame, VIEW_SIZE, path=mp4 if data is None else None, data=data,
+                                        key=None if data is None else f'{iso_path}|{movie.path}')
+                except (OSError, RuntimeError):
+                    continue
+                values = as_floats(pixels)
+                self.post(lambda i=index, v=values: dpg.set_value(self.view_textures[i], v))
+            self.post(lambda: dpg.set_value('viewer_status', '') if dpg.does_item_exist('viewer_status') else None)
+
+        threading.Thread(target=work, daemon=True).start()
+
     # Preview
 
     def open_preview(self):
@@ -729,7 +912,8 @@ class App:
             dpg.delete_item('preview_window')
         model = self.settings['model']
         with dpg.window(label=t('preview_title', name), tag='preview_window', modal=True, no_resize=True,
-                        no_scrollbar=True, width=width * 2 + 72, height=height + 170, pos=(30, 50)):
+                        no_scrollbar=True, width=width * 2 + 72, height=height + 170,
+                        pos=centred(width * 2 + 72, height + 170)):
             with dpg.group(horizontal=True):
                 self.label(t('frame'))
                 dpg.add_slider_int(tag='preview_frame', min_value=0, max_value=max(int(meta.get('frames', 1)) - 1, 0),
@@ -785,7 +969,7 @@ class App:
         self.build_fonts()
         self.build_theme()
         self.build()
-        dpg.create_viewport(title=self.t('app'), width=1240, height=820, min_width=1000, min_height=660,
+        dpg.create_viewport(title=self.t('app'), width=1240, height=920, min_width=1000, min_height=680,
                             clear_color=BACKGROUND)
         dpg.setup_dearpygui()
         dpg.show_viewport()
@@ -796,6 +980,10 @@ class App:
         screenshot = os.environ.get('PSPMT_SCREENSHOT')
         if os.environ.get('PSPMT_PAGE') in PAGES:
             self.show_page(os.environ['PSPMT_PAGE'])
+        if os.environ.get('PSPMT_VIEW'):
+            where, name = os.environ['PSPMT_VIEW'].split(':')
+            self.show_page('disc' if where == 'disc' else 'upscale')
+            self.open_viewer(where, name)
         if os.environ.get('PSPMT_PREVIEW'):
             self.show_page('upscale')
             dpg.set_value(self.upscale_checks[os.environ['PSPMT_PREVIEW']], True)
@@ -804,7 +992,8 @@ class App:
         shot_at = None
         while dpg.is_dearpygui_running():
             frames += 1
-            if screenshot and shot_at is None and frames >= 90 and self.busy is None:
+            if (screenshot and shot_at is None and frames >= 90 and self.busy is None
+                    and not dpg.get_value('thumb_status') and frames >= int(os.environ.get('PSPMT_WAIT', '90'))):
                 shot_at = frames + 20
             if screenshot and frames == shot_at:
                 dpg.output_frame_buffer(file=screenshot)
