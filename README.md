@@ -7,7 +7,20 @@ Lists and extracts the cutscene movies of a PSP game from **your own** disc imag
 > [!IMPORTANT]
 > This repository contains no game data. The tool only reads a disc image you provide and writes the movies to a folder you choose. Keep what you extract to yourself.
 
-## Use
+## The window
+
+```bash
+pip install -r requirements.txt     # Dear PyGui, once
+python psp_movies.py gui            # or double-click "PSP Movie Tools.pyw" on Windows
+```
+
+1. **Tools**: download ffmpeg and Real-ESRGAN with a click (pinned releases, checked against their SHA-256, unpacked into the app's tools folder and set up). Already installed ones are found.
+2. **Disc**: choose your disc image and an output folder; the movies are listed with their length, size and audio tracks; extract the ones you tick.
+3. **Upscale**: choose the model, the resolution and the video quality; **preview** one frame before and after; upscale the ticked movies, with progress and the time left; stop and go on later.
+
+English and Brazilian Portuguese. Settings are kept per user.
+
+## Command line
 
 Python 3.9 or newer, nothing else. [ffmpeg](https://ffmpeg.org/) on the PATH is optional: with it, every movie is also written as an `.mp4` (the same video, not re-encoded), which is what most video and AI upscaling tools open.
 
@@ -29,10 +42,10 @@ Audio (ATRAC3plus, often one track per language) stays on the disc: a replacemen
 
 ## Upscaling a movie
 
-`upscale` does it with [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN)'s `realesrgan-ncnn-vulkan` (download its release for your system; it runs on any GPU with Vulkan, AMD included) and ffmpeg:
+`upscale` does it with [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN)'s `realesrgan-ncnn-vulkan` (`python psp_movies.py download realesrgan`, or the Tools page; it runs on any GPU with Vulkan, AMD included) and ffmpeg:
 
 ```bash
-python psp_movies.py upscale movies/R6_INTRO.mp4 upscaled/R6_INTRO.mp4 --tool path/to/realesrgan-ncnn-vulkan
+python psp_movies.py upscale movies/R6_INTRO.mp4 upscaled/R6_INTRO.mp4 
 ```
 
 It keeps the frame rate and the frame count, writes 1920x1088 by default (`--height`), and works in blocks of 300 frames, so the disk holds one block of images at a time; run it again after a stop and it goes on from the last finished block. Models: `realesrgan-x4plus` (the default, best for rendered video; about 1 frame a second on a Radeon RX 7600) or `realesr-animevideov3` (about 10 times faster, smoother and less detailed).
