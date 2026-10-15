@@ -1,0 +1,9 @@
+# Game data never belongs here: disc images and anything extracted from them.
+*.iso
+*.cso
+*.pmf
+*.264
+*.mp4
+*.json.out
+movies/
+__pycache__/
