@@ -6,7 +6,7 @@ from pathlib import Path
 from . import tools
 from .extract import extract_movie, list_movies
 from .iso import Iso
-from .upscale import upscale_movie
+from .upscale import install_movie, upscale_movie
 
 
 def command_list(args):
@@ -59,6 +59,15 @@ def command_upscale(args):
           f"in {result['minutes']:.1f} min")
 
 
+def command_install(args):
+    settings = tools.load_settings()
+    ffmpeg = tools.find_ffmpeg(settings)[0]
+    if ffmpeg is None:
+        raise SystemExit('no ffmpeg found: python kit_movies.py download ffmpeg (or install it)')
+    for movie in args.movies:
+        print(f'{install_movie(ffmpeg, movie, args.mods)}')
+
+
 def command_download(args):
     settings = tools.load_settings()
 
@@ -95,6 +104,10 @@ def main(argv=None):
     p.add_argument('--work', help='where blocks go while it runs (default: OUT.parts beside OUT)')
     p.add_argument('--keep-parts', action='store_true', help='keep the blocks after joining them')
     p.set_defaults(run=command_upscale)
+    p = commands.add_parser('install', help="put upscaled movies in a port's movie mod folder, as NAME.264")
+    p.add_argument('mods', help='the mod folder, e.g. %%APPDATA%%/Sparta/UCES01401/mods/movies for Sparta')
+    p.add_argument('movies', nargs='+', help='upscaled .mp4 files')
+    p.set_defaults(run=command_install)
     p = commands.add_parser('download', help='download ffmpeg or Real-ESRGAN into the tools folder')
     p.add_argument('what', choices=('ffmpeg', 'realesrgan'))
     p.set_defaults(run=command_download)

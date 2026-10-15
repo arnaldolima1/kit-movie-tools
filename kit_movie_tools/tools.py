@@ -37,6 +37,7 @@ def data_dir():
 DEFAULTS = {
     'iso': '',
     'output': str(Path.home() / 'Kit Movies'),
+    'mods': '',             # a port's replacement movie folder, e.g. Sparta's mods/movies
     'tools': '',            # '' = data_dir() / 'tools'
     'ffmpeg': '',           # '' = found automatically
     'realesrgan': '',       # '' = found automatically

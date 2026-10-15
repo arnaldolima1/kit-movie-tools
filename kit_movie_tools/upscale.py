@@ -75,6 +75,20 @@ def probe(ffprobe, movie):
     return stream['r_frame_rate'], int(stream['nb_read_packets']), int(stream['width']), int(stream['height'])
 
 
+def install_movie(ffmpeg, movie, mods_dir, cancel=None):
+    """Puts an upscaled .mp4 where a port plays replacement movies from, as
+    the raw H.264 stream (NAME.264) such a port reads: the video copied, not
+    re-encoded."""
+    mods_dir = Path(mods_dir)
+    mods_dir.mkdir(parents=True, exist_ok=True)
+    target = mods_dir / f'{Path(movie).stem}.264'
+    temporary = target.with_name(target.stem + '.tmp.264')
+    run([ffmpeg, '-v', 'error', '-y', '-i', movie, '-c:v', 'copy', '-bsf:v', 'h264_mp4toannexb', '-an', '-f', 'h264',
+         temporary], cancel)
+    temporary.replace(target)
+    return target
+
+
 def output_size(width, height, out_height):
     """The size an upscaled movie gets: `out_height` tall, the picture shape
     kept, both even."""
