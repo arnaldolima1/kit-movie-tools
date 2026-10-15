@@ -29,7 +29,17 @@ Audio (ATRAC3plus, often one track per language) stays on the disc: a replacemen
 
 ## Upscaling a movie
 
-1. Extract it, then upscale `NAME.mp4` with the tool you like. Keep the **frame rate and the frame count** (`NAME.json`): the replacement is shown frame for frame against the game's own audio.
+`upscale` does it with [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN)'s `realesrgan-ncnn-vulkan` (download its release for your system; it runs on any GPU with Vulkan, AMD included) and ffmpeg:
+
+```bash
+python psp_movies.py upscale movies/R6_INTRO.mp4 upscaled/R6_INTRO.mp4 --tool path/to/realesrgan-ncnn-vulkan
+```
+
+It keeps the frame rate and the frame count, writes 1920x1088 by default (`--height`), and works in blocks of 300 frames, so the disk holds one block of images at a time; run it again after a stop and it goes on from the last finished block. Models: `realesrgan-x4plus` (the default, best for rendered video; about 1 frame a second on a Radeon RX 7600) or `realesr-animevideov3` (about 10 times faster, smoother and less detailed).
+
+Or upscale `NAME.mp4` with any other tool:
+
+1. Upscale it with the tool you like. Keep the **frame rate and the frame count** (`NAME.json`): the replacement is shown frame for frame against the game's own audio.
 2. Keep the 480:272 picture shape, at any size (for example 1920×1088 or 3840×2176).
 3. Put the result where the port looks for replacement movies (in Sparta: planned, see its documentation).
 

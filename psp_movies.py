@@ -3,6 +3,7 @@
 
     python psp_movies.py list    GAME.iso
     python psp_movies.py extract GAME.iso OUT_DIR [--only NAME ...] [--no-mp4]
+    python psp_movies.py upscale MOVIE.mp4 OUT.mp4 --tool PATH [--model NAME] [--height 1088]
 
 A PSP movie is a PSMF file (.pmf): a 2 KiB header, then an MPEG program
 stream holding one H.264 video stream (0xE0) and ATRAC3plus audio (private
@@ -14,11 +15,21 @@ stream 1, 0xBD). `extract` writes, for each movie:
     NAME.mp4    the same video in an MP4 file, without re-encoding, when
                 ffmpeg is on the PATH (--no-mp4 skips it)
 
-Nothing is decoded or re-encoded, and nothing is sent anywhere. Only the
-standard library is used; ffmpeg is optional.
+`extract` decodes and re-encodes nothing, and nothing is sent anywhere.
+Only the standard library is used; ffmpeg is optional for `extract`.
+
+`upscale` makes a sharper, larger copy of an extracted movie with
+Real-ESRGAN (realesrgan-ncnn-vulkan, which runs on any Vulkan GPU) and
+ffmpeg, keeping its frame rate and frame count, so the result can replace the
+original picture frame for frame. It works in blocks of frames, so the disk
+holds only one block of images at a time, and it picks up where it stopped
+if it is run again.
 """
 import argparse
 import json
+import os
+import tempfile
+import time
 import shutil
 import struct
 import subprocess
@@ -156,12 +167,17 @@ def access_units(stream):
     return count
 
 
-def frame_rate(pts_values, frames):
-    """Frames per second from the spread of the video's timestamps."""
-    pts = sorted(p for p in pts_values if p is not None)
-    if len(pts) < 2 or frames < 2:
-        return None
-    rate = (frames - 1) * CLOCK / (pts[-1] - pts[0]) if pts[-1] > pts[0] else None
+def frame_rate(info, pts_values, frames):
+    """Frames per second: the frame count over the duration the header gives
+    (from the first picture's start to the last one's end), else over the
+    spread of the video's timestamps."""
+    rate = None
+    if frames > 0 and info['end_pts'] > info['start_pts']:
+        rate = frames * CLOCK / (info['end_pts'] - info['start_pts'])
+    else:
+        pts = sorted(p for p in pts_values if p is not None)
+        if len(pts) >= 2 and frames >= 2 and pts[-1] > pts[0]:
+            rate = (frames - 1) * CLOCK / (pts[-1] - pts[0])
     # The PSP's movie rates: snap to the nearest standard one.
     for standard, exact in ((29.97, 30000 / 1001), (30.0, 30.0), (25.0, 25.0), (23.976, 24000 / 1001),
                             (59.94, 60000 / 1001)):
@@ -221,7 +237,7 @@ def command_extract(args):
             print(f'{path}: no video stream found')
             continue
         frames = access_units(stream)
-        rate = frame_rate(pts_values, frames)
+        rate = frame_rate(info, pts_values, frames)
         (out / f'{name}.264').write_bytes(stream)
         meta = {
             'source': path,
@@ -249,6 +265,83 @@ def command_extract(args):
     print(f'{done} movies extracted to {out}')
 
 
+def run(command):
+    result = subprocess.run([str(c) for c in command], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise SystemExit(f'{Path(str(command[0])).name} failed:\n{result.stderr.strip()[-2000:]}')
+    return result.stdout
+
+
+def probe(ffprobe, movie):
+    """Frame rate (as a fraction) and frame count of a movie's video."""
+    out = run([ffprobe, '-v', 'error', '-select_streams', 'v:0', '-count_packets',
+               '-show_entries', 'stream=r_frame_rate,nb_read_packets,width,height', '-of', 'json', movie])
+    stream = json.loads(out)['streams'][0]
+    return stream['r_frame_rate'], int(stream['nb_read_packets']), int(stream['width']), int(stream['height'])
+
+
+def command_upscale(args):
+    ffmpeg = shutil.which('ffmpeg')
+    ffprobe = shutil.which('ffprobe')
+    if ffmpeg is None or ffprobe is None:
+        raise SystemExit('upscale needs ffmpeg and ffprobe on the PATH')
+    tool = Path(args.tool)
+    if tool.is_dir():
+        tool = tool / ('realesrgan-ncnn-vulkan.exe' if os.name == 'nt' else 'realesrgan-ncnn-vulkan')
+    if not tool.is_file():
+        raise SystemExit(f'{tool}: no realesrgan-ncnn-vulkan there (--tool takes the program or its folder)')
+    models = Path(args.models) if args.models else tool.parent / 'models'
+    movie = Path(args.movie)
+    out = Path(args.out)
+    rate, frames, width, height = probe(ffprobe, movie)
+    # The PSP's picture shape, at the height asked for (a multiple of 16).
+    out_height = args.height
+    out_width = round(out_height * width / height / 2) * 2
+    work = Path(args.work) if args.work else out.with_name(out.stem + '.parts')
+    work.mkdir(parents=True, exist_ok=True)
+    block = args.block
+    blocks = (frames + block - 1) // block
+    print(f'{movie.name}: {frames} frames at {rate} fps, {width}x{height} -> {out_width}x{out_height} '
+          f'with {args.model}, {blocks} blocks of {block}')
+    started = time.time()
+    done_frames = 0
+    for index in range(blocks):
+        part = work / f'part_{index:04d}.mp4'
+        first = index * block
+        count = min(block, frames - first)
+        if part.exists():
+            continue  # made by an earlier run
+        with tempfile.TemporaryDirectory(dir=work) as temp:
+            source = Path(temp) / 'in'
+            bigger = Path(temp) / 'out'
+            source.mkdir()
+            bigger.mkdir()
+            # Frames `first`..`first + count - 1`, chosen by number, not time,
+            # so no frame is lost or doubled at a block's edge.
+            run([ffmpeg, '-v', 'error', '-i', movie, '-vf', f'select=between(n\\,{first}\\,{first + count - 1})',
+                 '-fps_mode', 'passthrough', '-frames:v', count, source / '%06d.png'])
+            run([tool, '-i', source, '-o', bigger, '-n', args.model, '-s', args.scale, '-f', 'png', '-m', models])
+            run([ffmpeg, '-v', 'error', '-y', '-framerate', rate, '-i', bigger / '%06d.png',
+                 '-vf', f'scale={out_width}:{out_height}:flags=lanczos', '-c:v', 'libx264', '-crf', args.crf,
+                 '-preset', 'slow', '-pix_fmt', 'yuv420p', part.with_suffix('.tmp.mp4')])
+            part.with_suffix('.tmp.mp4').replace(part)
+        done_frames += count
+        elapsed = time.time() - started
+        left = (frames - first - count) * elapsed / done_frames
+        print(f'  block {index + 1}/{blocks}: {first + count}/{frames} frames, '
+              f'{done_frames / elapsed:.2f} frames/s, about {left / 60:.0f} min left', flush=True)
+    listing = work / 'parts.txt'
+    listing.write_text(''.join(f"file '{p.name}'\n" for p in sorted(work.glob('part_*.mp4'))
+                               if not p.name.endswith('.tmp.mp4')), encoding='utf-8')
+    run([ffmpeg, '-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', listing, '-c', 'copy', out])
+    _, made, _, _ = probe(ffprobe, out)
+    if made != frames:
+        raise SystemExit(f'{out}: {made} frames, but {movie.name} has {frames}; keeping {work} to look at')
+    if not args.keep_parts:
+        shutil.rmtree(work)
+    print(f'{out}: {made} frames, {out_width}x{out_height}, in {(time.time() - started) / 60:.1f} min')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     commands = parser.add_subparsers(dest='command', required=True)
@@ -261,6 +354,22 @@ def main():
     extract.add_argument('--only', nargs='+', metavar='NAME', help='only these movies (e.g. R6_INTRO)')
     extract.add_argument('--no-mp4', action='store_true', help='do not write .mp4 files even with ffmpeg')
     extract.set_defaults(run=command_extract)
+    upscale = commands.add_parser('upscale', help='make a sharper, larger copy of an extracted movie')
+    upscale.add_argument('movie', help='an .mp4 that extract wrote')
+    upscale.add_argument('out', help='the .mp4 to write')
+    upscale.add_argument('--tool', required=True, help='realesrgan-ncnn-vulkan, or the folder it is in')
+    upscale.add_argument('--models', help='its models folder (default: models beside it)')
+    upscale.add_argument('--model', default='realesrgan-x4plus',
+                         help='realesrgan-x4plus (default: best for rendered video), realesr-animevideov3, '
+                              'realesrgan-x4plus-anime')
+    upscale.add_argument('--scale', type=int, default=4, help="the model's scale (default 4)")
+    upscale.add_argument('--height', type=int, default=1088,
+                         help='output height; the width keeps the picture shape (default 1088, 1920 wide)')
+    upscale.add_argument('--crf', type=int, default=14, help='x264 quality, lower is better (default 14)')
+    upscale.add_argument('--block', type=int, default=300, help='frames per block (default 300)')
+    upscale.add_argument('--work', help='where blocks go while it runs (default: OUT.parts beside OUT)')
+    upscale.add_argument('--keep-parts', action='store_true', help='keep the blocks after joining them')
+    upscale.set_defaults(run=command_upscale)
     args = parser.parse_args()
     args.run(args)
 

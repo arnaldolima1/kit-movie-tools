@@ -29,6 +29,16 @@ O áudio (ATRAC3plus, em geral uma faixa por idioma) fica no disco: o vídeo nov
 
 ## Remasterizando um vídeo
 
+O `upscale` faz isso com o `realesrgan-ncnn-vulkan` do [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) (baixe o release para o seu sistema; ele roda em qualquer placa com Vulkan, AMD inclusive) e o ffmpeg:
+
+```bash
+python psp_movies.py upscale videos/R6_INTRO.mp4 remaster/R6_INTRO.mp4 --tool caminho/do/realesrgan-ncnn-vulkan
+```
+
+Ele mantém o fps e o número de quadros, grava 1920x1088 por padrão (`--height`) e trabalha em blocos de 300 quadros, então o disco guarda um bloco de imagens por vez; se parar no meio, rode de novo e ele continua do último bloco pronto. Modelos: `realesrgan-x4plus` (o padrão, o melhor para vídeo renderizado; cerca de 1 quadro por segundo numa Radeon RX 7600) ou `realesr-animevideov3` (umas 10 vezes mais rápido, mais suave e com menos detalhe).
+
+Ou remasterize o `NOME.mp4` em outra ferramenta:
+
 1. Extraia e remasterize o `NOME.mp4` na ferramenta que preferir. Mantenha **o fps e o número de quadros** (`NOME.json`): o vídeo novo é mostrado quadro a quadro junto com o áudio original do jogo.
 2. Mantenha a proporção 480:272, em qualquer tamanho (por exemplo 1920×1088 ou 3840×2176).
 3. Coloque o resultado onde o port procura vídeos de substituição (no Sparta: planejado, veja a documentação dele).
